@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gps_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gps_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gps_password}
+      POSTGRES_DB: ${POSTGRES_DB:-gps_tracking}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gps_user} -d ${POSTGRES_DB:-gps_tracking}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - gps_network
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: gps_mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - gps_network
+
+  api:
+    build: .
+    container_name: gps_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-gps_user}:${POSTGRES_PASSWORD:-gps_password}@postgres:5432/${POSTGRES_DB:-gps_tracking}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    networks:
+      - gps_network
+
+networks:
+  gps_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mosquitto_data:
+  mosquitto_log:
